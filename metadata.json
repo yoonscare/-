@@ -1,0 +1,6 @@
+{
+  "name": "따뜻한 교무실 (교사 상담소)",
+  "description": "지친 교사들에게 따뜻한 위로와 공감을 전하는 AI 상담 앱",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,91 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function existing() {
+      return resource.data;
+    }
+    function incoming() {
+      return request.resource.data;
+    }
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    function isValidId(id) {
+       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    match /users/{userId} {
+      function isValidUser(data) {
+        // We use numbers for timestamps from client Date.now() for simplicity unless we use serverTimestamp()
+        return data.keys().hasAll(['email', 'createdAt']) && 
+               data.email is string && data.email.size() <= 256 &&
+               data.createdAt is number &&
+               (data.get('displayName', '') is string);
+      }
+      function isValidUserUpdate(data, old) {
+        return data.email == old.email && data.createdAt == old.createdAt &&
+               (data.get('displayName', '') is string);
+      }
+      
+      allow get: if isSignedIn() && isOwner(userId) && isValidId(userId);
+      allow create: if isSignedIn() && isOwner(userId) && isValidId(userId) &&
+                       isValidUser(incoming());
+      allow update: if isSignedIn() && isOwner(userId) && isValidId(userId) &&
+                       isValidUserUpdate(incoming(), existing()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName']);
+    }
+
+    match /sessions/{sessionId} {
+      function isValidSession(data) {
+        return data.keys().hasAll(['userId', 'title', 'createdAt', 'updatedAt']) &&
+               data.userId == request.auth.uid &&
+               data.title is string && data.title.size() <= 200 &&
+               data.createdAt is number &&
+               data.updatedAt is number &&
+               (data.get('category', '') is string);
+      }
+      function isValidSessionUpdate(data, old) {
+        return data.userId == old.userId && data.createdAt == old.createdAt &&
+               data.title is string && data.title.size() <= 200 &&
+               data.updatedAt is number &&
+               (data.get('category', '') is string);
+      }
+
+      allow create: if isSignedIn() && isValidId(sessionId) &&
+                       isValidSession(incoming());
+      allow update: if isSignedIn() && isValidId(sessionId) &&
+                       existing().userId == request.auth.uid &&
+                       isValidSessionUpdate(incoming(), existing()) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'updatedAt', 'category']);
+      allow get: if isSignedIn() && isValidId(sessionId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && isValidId(sessionId) && existing().userId == request.auth.uid;
+    }
+
+    match /sessions/{sessionId}/messages/{messageId} {
+      function isValidMessage(data) {
+        return data.keys().hasAll(['text', 'role', 'createdAt']) &&
+               data.text is string && data.text.size() <= 20000 &&
+               data.role in ['user', 'model'] &&
+               data.createdAt is number;
+      }
+      function isSessionOwner() {
+        return get(/databases/$(database)/documents/sessions/$(sessionId)).data.userId == request.auth.uid;
+      }
+      
+      allow create: if isSignedIn() && isValidId(sessionId) && isValidId(messageId) &&
+                       isSessionOwner() && isValidMessage(incoming());
+      allow update: if false;
+      allow get: if isSignedIn() && isValidId(sessionId) && isValidId(messageId) && isSessionOwner();
+      allow list: if isSignedIn() && isValidId(sessionId) && isSessionOwner();
+      allow delete: if isSignedIn() && isValidId(sessionId) && isValidId(messageId) && isSessionOwner();
+    }
+  }
+}
